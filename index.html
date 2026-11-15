@@ -2610,24 +2610,31 @@ window.saveTripStateToFirebase = function(state) {
   }, 1000);
 };
 
-let remoteState;
+onValue(roomRef, function(snapshot) {
+  const data = snapshot.val();
 
-try {
-  // 讀取 JSON 字串；也兼容資料庫原有的物件格式。
-  remoteState = typeof data.appState === "string"
-    ? JSON.parse(data.appState)
-    : data.appState;
-} catch (error) {
-  console.error("Firebase 資料格式錯誤：", error);
-  setStatus("🔴 雲端資料格式錯誤");
-  return;
-}
+  if (!data || data.appState == null) {
+    setStatus("🟡 雲端尚無資料");
+    return;
+  }
 
-const remoteJson = JSON.stringify(remoteState);
-const localState = typeof window.getTripState === "function"
-  ? window.getTripState()
-  : null;
-const localJson = localState ? JSON.stringify(localState) : "";    setStatus("🟢 已同步");
+  let remoteState;
+  try {
+    remoteState = typeof data.appState === "string"
+      ? JSON.parse(data.appState)
+      : data.appState;
+  } catch (error) {
+    console.error("Firebase 資料格式錯誤：", error);
+    setStatus("🔴 雲端資料格式錯誤");
+    return;
+  }
+
+  const remoteJson = JSON.stringify(remoteState);
+  const localState = (typeof window.getTripState === "function") ? window.getTripState() : null;
+  const localJson = localState ? JSON.stringify(localState) : "";
+
+  if (remoteJson === localJson || remoteJson === lastAppliedJson) {
+    setStatus("🟢 已同步");
     return;
   }
 
@@ -2648,5 +2655,4 @@ const localJson = localState ? JSON.stringify(localState) : "";    setStatus("�
   console.error("Firebase read error:", err);
   setStatus("🔴 無法讀取雲端資料");
 });
-</script>
 </body></html>
