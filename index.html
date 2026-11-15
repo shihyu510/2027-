@@ -372,6 +372,29 @@ body{padding-bottom:40px}
   .spd{margin-left:0; width:100%}
 }
 @media (prefers-reduced-motion:reduce){ .node.active .pulse,.gcard.pop{animation:none} }
+/* Open-Meteo 天氣卡片 */
+.wx-header-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wx-city-switch{display:flex;gap:6px;flex-wrap:wrap}
+.wx-city-btn.active{background:var(--yellow-strong)}
+.wx-content{display:flex;flex-direction:column;gap:14px;min-width:0}
+.wx-now{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:16px;background:var(--yellow);border:2px solid var(--line);border-radius:16px}
+.wx-current-temp{font-size:clamp(48px,12vw,68px);font-weight:900;line-height:1}
+.wx-current-condition{font-size:17px;font-weight:700}
+.wx-current-details{font-size:13px;color:var(--muted)}
+.wx-panel{padding:12px;background:var(--surface2);border:2px solid var(--line);border-radius:16px;min-width:0}
+.wx-panel-title{font-weight:900;margin-bottom:8px}
+.wx-hourly{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px}
+.wx-hour{flex:0 0 72px;text-align:center;padding:8px 5px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px}
+.wx-hour-icon{font-size:21px}
+.wx-hour-time,.wx-hour-pop{font-size:11px;color:var(--muted)}
+.wx-hour-temp{font-weight:900}
+.wx-day{display:grid;grid-template-columns:1fr 32px 55px 1fr 76px;gap:6px;align-items:center;padding:8px 2px;border-bottom:1px dashed var(--dot)}
+.wx-day:last-child{border-bottom:0}
+.wx-day-icon{text-align:center;font-size:20px}
+.wx-day-pop{text-align:center;color:var(--info);font-size:12px}
+.wx-day-temps{text-align:right;font-weight:700;white-space:nowrap}
+.wx-error{padding:12px;border:1.5px solid var(--danger);border-radius:12px;color:var(--danger);background:var(--danger-bg)}
+@media(max-width:420px){.wx-day{grid-template-columns:1fr 28px 48px 1fr 68px;gap:3px;font-size:12px}}
 </style>
 
 <div class="wrap" id="wrap">
@@ -435,19 +458,26 @@ body{padding-bottom:40px}
     </div>
   </header>
 
-  <!-- OVERVIEW -->
+    <!-- OVERVIEW -->
   <section id="sec-overview" class="stack">
     <div class="card stack" id="wx-card">
-      <div class="row" style="justify-content:space-between; align-items:flex-start">
-        <div><h2>🌤️ 每週天氣預報</h2><div class="small muted" id="wx-meta">讀取中…</div></div>
-        <button class="btn primary" data-act="wx-refresh" id="wx-btn" style="flex:none">🔄 刷新</button>
+      <div class="wx-header-row">
+        <div>
+          <h2>🌤️ 每週天氣預報</h2>
+          <div class="small muted" id="wx-meta">讀取中…</div>
+        </div>
+        <div class="wx-city-switch" aria-label="城市切換">
+          <button class="btn wx-city-btn active" type="button" data-act="wx-city" data-city="nagoya">名古屋</button>
+          <button class="btn wx-city-btn" type="button" data-act="wx-city" data-city="shirakawa">白川鄉</button>
+        </div>
+        <button class="btn primary" data-act="wx-refresh" id="wx-btn" type="button">🔄 刷新</button>
       </div>
-      <div class="warn" id="wx-warn" hidden></div>
-      <div class="wx-cities" id="wx-body"><div class="small muted">需要連上共用資料才能顯示預報。</div></div>
-      <div class="tiny muted">預報來自 AccuWeather 連接器,每 30 分鐘自動更新,按「刷新」會立即重新取得。每位使用者要在自己的 Claude 帳號允許這個連接器,才看得到即時預報。</div>
+      <div class="wx-content" id="wx-body" aria-live="polite">
+        <div class="small muted">正在載入天氣…</div>
+      </div>
     </div>
-    </section>
-
+  </section>
+  
   <!-- ITINERARY -->
   <section id="sec-itinerary" class="stack">
     <h2 class="sec-h">🗓️ 每日行程</h2>
@@ -1298,8 +1328,7 @@ body{padding-bottom:40px}
     else if(a==='copy') copy(t.dataset.text);
     else if(a==='reset') reset();
     else if(a==='wx-refresh') refreshWx();
-    else if(a==='wx-allow') wxAllow();
-    else if(a==='wx-toggle') wxToggle(t);
+    else if(a==='wx-city') refreshWx(t.dataset.city);
   });
   document.addEventListener('change', function(e){
     var c = e.target.closest('[data-chk]');
@@ -1410,155 +1439,145 @@ body{padding-bottom:40px}
     }
   }
   function onSubErr(){ setChip('⚠️ 同步中斷','重新整理頁面可重新連線'); }
-  /* ---------- 天氣預報(AccuWeather 連接器,頁面自己讀取) ---------- */
-  var WXS = 'AccuWeather®';
-  var WXC = [{id:'nagoya', name:'名古屋', key:'2369295'},{id:'takayama', name:'飛驒高山', key:'2362379'}];
-  var WXT = [['cur','widgets-current-claude'],['hourly','widgets-hourly-claude'],['daily','widgets-daily-claude']];
-  var WXD = {}, wxMcp = null, wxReady = false, wxUnsubs = [], wxOpen = {};
-  try{ wxOpen = JSON.parse(localStorage.getItem('lutu-nagoya-wx-open') || '{}') || {}; }catch(e){ wxOpen = {}; }
-  function wxToggle(btn){
-    var id = btn.dataset.id; wxOpen[id] = !wxOpen[id];
-    try{ localStorage.setItem('lutu-nagoya-wx-open', JSON.stringify(wxOpen)); }catch(e){}
-    var card = btn.closest('.wxc'); card.querySelector('.wxc-body').hidden = !wxOpen[id];
-    btn.setAttribute('aria-expanded', String(!!wxOpen[id]));
-    btn.querySelector('.wxc-chev').textContent = wxOpen[id] ? '▴' : '▾';
-  }
-  function wxIn(c){ return {queryParams:{locationKey:c.key, unit:'metric', lang:'zh-tw'}}; }
-  function wxIcon(c){
-    c = Number(c);
-    if(c===1 || c===2) return '☀️';
-    if(c>=3 && c<=5) return '🌤️';
-    if(c>=6 && c<=8) return '☁️';
-    if(c===11) return '🌫️';
-    if(c===12 || c===18 || c===25 || c===26 || c===39 || c===40) return '🌧️';
-    if(c===13 || c===14) return '🌦️';
-    if(c>=15 && c<=17) return '⛈️';
-    if(c===41 || c===42) return '⛈️';
-    if((c>=19 && c<=24) || c===29 || c===43 || c===44) return '🌨️';
-    if(c===30) return '🥵';
-    if(c===31) return '🥶';
-    if(c===32) return '💨';
-    if(c===33 || c===34) return '🌙';
-    if(c>=35 && c<=38) return '🌥️';
-    return '🌡️';
-  }
-  function wxErrText(e){
-    var code = e && e.code;
-    if(!code) return '載入中…';
-    if(code === 'server_not_connected' || code === 'selection_required' || code === 'server_not_found') return '還沒有連接 AccuWeather,請到 claude.ai 設定 → 連接器加入。';
-    if(code === 'needs_reauth') return 'AccuWeather 連接器需要重新連接,請到 claude.ai 設定 → 連接器處理。';
-    if(code === 'not_in_manifest' || code === 'approval_required' || code === 'consent_required') return '需要你允許這個頁面使用 AccuWeather 才能顯示預報。';
-    if(code === 'blocked_by_policy') return '你的組織不允許使用 AccuWeather 連接器。';
-    return '暫時無法取得預報,稍後按「刷新」再試。';
-  }
-  function wxNeedAllow(e){ var c = e && e.code; return c === 'not_in_manifest' || c === 'approval_required' || c === 'consent_required'; }
-  function wxCity(c, d){
-    var err = d.curErr || d.hourlyErr || d.dailyErr;
-    var cur = d.cur && d.cur.currentConditions, hr = d.hourly && d.hourly.hourlyForecast, dy = d.daily && d.daily.dailyForecast;
-    var head = '<div class="wxc"><div class="wxc-name">'+esc(c.name)+'</div>';
-    if(!cur && !hr && !dy){
-      return head+'<div class="wxc-mute">'+esc(wxErrText(err))+'</div>'+(wxNeedAllow(err) ? '<button class="btn primary" data-act="wx-allow">允許使用 AccuWeather</button>' : '')+'</div>';
-    }
-    var t0 = dy && dy[0];
-    var open = !!wxOpen[c.id];
-    var pop0 = t0 ? Math.round(Math.max(t0.day.rainProbabilityValue||0, t0.night.rainProbabilityValue||0, t0.day.snowProbabilityValue||0, t0.night.snowProbabilityValue||0)) : null;
-    var sum = '<button type="button" class="wxc-head" data-act="wx-toggle" data-id="'+c.id+'" aria-expanded="'+open+'">'+
-      '<span class="wxc-name">'+esc(c.name)+'</span>'+
-      '<span class="wxc-sum num">'+(cur ? wxIcon(cur.iconCode)+' '+Math.round(cur.temperatureValue)+'°' : '')+'</span>'+
-      '<span class="wxc-chev" aria-hidden="true">'+(open ? '▴' : '▾')+'</span>'+
-      '<span class="wxc-sumtxt num">'+(cur ? esc(cur.phrase) : '')+(t0 ? ' ・ '+Math.round(t0.day.temperature)+'° / '+Math.round(t0.night.temperature)+'°' : '')+(pop0 !== null ? ' ・ 💧 '+pop0+'%' : '')+'</span></button>';
-    var out = '<div class="wxc">'+sum+'<div class="wxc-body"'+(open ? '' : ' hidden')+'>';
-    out += '<div class="wxc-now"><span class="wxc-temp num">'+(cur ? Math.round(cur.temperatureValue) : '–')+'°</span><span class="wxc-cond">'+(cur ? wxIcon(cur.iconCode)+' '+esc(cur.phrase) : '')+'</span></div>';
-    out += '<div class="wxc-hl num">'+(t0 ? Math.round(t0.day.temperature)+'° / '+Math.round(t0.night.temperature)+'°' : '')+(cur ? '　體感溫度 '+Math.round(cur.realFeelValue)+'°' : '')+'</div>';
+ 
+  /* ---------- 天氣預報（Open-Meteo，免登入、免 API Key） ---------- */
+var WX_LOCATIONS = {
+  nagoya: { name: '名古屋', latitude: 35.1815, longitude: 136.9066 },
+  shirakawa: { name: '白川鄉合掌村', latitude: 36.2576, longitude: 136.9065 }
+};
+var WX_CURRENT = 'nagoya';
+var WX_DATA = {};
 
-    var tips = [];
-    if(hr && hr.length){ tips.push(hr.some(function(h){ return parseInt(h.precip) >= 50; }) ? '☔ 記得帶傘!' : '☀️ 接下來幾小時降雨機率低'); }
-    if(dy && dy.length){
-      var minLo = Math.min.apply(null, dy.map(function(x){ return x.night.temperature; }));
-      if(dy.some(function(x){ return (x.day.snowProbabilityValue||0) >= 30 || (x.night.snowProbabilityValue||0) >= 30; })) tips.push('❄️ 未來幾天可能下雪');
-      if(minLo <= 2) tips.push('🧣 低溫可達 '+Math.round(minLo)+'°C');
-    }
-    if(hr && hr.length){
-      var cols = hr.map(function(h){
-        return '<div class="wxc-col"><span class="wxc-day">'+esc(String(h.date).slice(11,13))+'時</span><span class="wxc-ic">'+wxIcon(h.icon)+'</span><b class="num">'+Math.round(h.temperatureValue)+'°</b><span class="wxc-pop num">💧 '+(parseInt(h.precip)||0)+'%</span></div>';
-      }).join('');
-      out += '<div class="wxc-panel">'+(tips.length ? '<div class="wxc-tips">'+tips.map(esc).join(' ・ ')+'</div>' : '')+'<div class="wxc-strip">'+cols+'</div></div>';
-      var mm = hr.map(function(h){ return Number(h.totalLiquid && h.totalLiquid.Value) || Number(h.extended && h.extended.rainValue) || 0; });
-      var mmax = Math.max(1, Math.max.apply(null, mm));
-      out += '<div class="wxc-panel"><div class="wxc-ptitle">💧 每小時降雨量 (mm)</div><div class="wxc-strip">'+hr.map(function(h, i){
-        return '<div class="wxc-col"><span class="wxc-barv"><i style="height:'+Math.round(mm[i]/mmax*100)+'%"></i></span><span class="wxc-mm num">'+mm[i].toFixed(1)+'</span><span class="wxc-day">'+esc(String(h.date).slice(11,13))+'時</span></div>';
-      }).join('')+'</div></div>';
-    }else if(tips.length){
-      out += '<div class="wxc-panel"><div class="wxc-tips" style="border:0; margin:0; padding:0">'+tips.map(esc).join(' ・ ')+'</div></div>';
-    }
-    if(dy && dy.length){
-      var lo = Infinity, hi = -Infinity;
-      dy.forEach(function(x){ lo = Math.min(lo, x.night.temperature); hi = Math.max(hi, x.day.temperature); });
-      var span = Math.max(1, hi - lo);
-      out += '<div class="wxc-panel"><div class="wxc-ptitle">🗓️ 未來 '+dy.length+' 天</div>'+dy.map(function(x, i){
-        var l = x.night.temperature, h = x.day.temperature, left = Math.round((Math.min(l,h) - lo) / span * 100), wid = Math.max(6, Math.round(Math.abs(h - l) / span * 100));
-        var pop = Math.max(x.day.rainProbabilityValue||0, x.night.rainProbabilityValue||0, x.day.snowProbabilityValue||0, x.night.snowProbabilityValue||0);
-        var ds = String(x.date);
-        return '<div class="wxc-drow"><span class="wxc-dd num">'+(i === 0 ? '今天' : (+ds.slice(5,7))+'/'+(+ds.slice(8,10)))+'<small>('+esc(x.shortDayOfWeek)+')</small></span><span>'+wxIcon(x.day.icon)+'</span><span class="wxc-pop num">💧'+Math.round(pop)+'%</span><span class="wxc-range"><i style="left:'+left+'%; width:'+wid+'%"></i></span><span class="wxc-rt num">'+Math.round(Math.min(l,h))+'°–'+Math.round(Math.max(l,h))+'°</span></div>';
-      }).join('')+'</div>';
-    }
-    if(err && (!cur || !hr || !dy)) out += '<div class="wxc-mute">部分資料暫時無法取得:'+esc(wxErrText(err))+'</div>';
-    return out+'</div></div>';
+var WX_CODES = {
+  0:['晴天','☀️'], 1:['大致晴朗','🌤️'], 2:['局部多雲','⛅'], 3:['多雲','☁️'],
+  45:['有霧','🌫️'], 48:['有霧','🌫️'],
+  51:['毛毛雨','🌦️'], 53:['毛毛雨','🌦️'], 55:['毛毛雨','🌧️'],
+  56:['凍雨','🌧️'], 57:['凍雨','🌧️'],
+  61:['小雨','🌦️'], 63:['中雨','🌧️'], 65:['大雨','🌧️'],
+  66:['凍雨','🌧️'], 67:['凍雨','🌧️'],
+  71:['小雪','🌨️'], 73:['中雪','❄️'], 75:['大雪','❄️'], 77:['雪粒','🌨️'],
+  80:['陣雨','🌦️'], 81:['強陣雨','🌧️'], 82:['暴雨','⛈️'],
+  85:['陣雪','🌨️'], 86:['強陣雪','❄️'],
+  95:['雷雨','⛈️'], 96:['雷雨伴冰雹','⛈️'], 99:['雷暴','⛈️']
+};
+
+function wxCondition(code){
+  return WX_CODES[Number(code)] || ['天氣狀況','🌡️'];
+}
+function wxHourLabel(value){
+  return String(value || '').slice(11,16);
+}
+function wxDayLabel(value, index){
+  if(index === 0) return '今天';
+  var date = new Date(String(value) + 'T12:00:00Z');
+  return '週' + ['日','一','二','三','四','五','六'][date.getUTCDay()];
+}
+function renderWx(){
+  var box = $('wx-body');
+  if(!box) return;
+
+  document.querySelectorAll('.wx-city-btn').forEach(function(button){
+    button.classList.toggle('active', button.dataset.city === WX_CURRENT);
+    button.setAttribute('aria-pressed', String(button.dataset.city === WX_CURRENT));
+  });
+
+  var data = WX_DATA[WX_CURRENT];
+  var location = WX_LOCATIONS[WX_CURRENT];
+
+  if(!data){
+    box.innerHTML = '<div class="small muted">正在載入' + esc(location.name) + '天氣…</div>';
+    return;
   }
-  function renderWx(){
-    var box = $('wx-body'); if(!box) return;
-    if(!wxReady){ box.innerHTML = '<div class="small muted">讀取中…</div>'; return; }
-    if(!wxMcp){
-      box.innerHTML = '<div class="small muted">這個檢視無法使用天氣連接器。請用 Claude 帳號登入後,從頁面網址開啟。</div>';
-      $('wx-meta').textContent = '未連線'; return;
-    }
-    var newest = 0;
-    box.innerHTML = WXC.map(function(c){
-      var d = WXD[c.id] || {};
-      WXT.forEach(function(t){ if(d[t[0]+'At'] > newest) newest = d[t[0]+'At']; });
-      return wxCity(c, d);
-    }).join('');
-    $('wx-meta').textContent = newest ? '更新於 ' + new Date(newest).toLocaleString('zh-TW', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false}) : '載入中…';
+  if(data.error){
+    box.innerHTML = '<div class="wx-error">天氣資料暫時無法取得，請稍後按「刷新」再試。</div>';
+    return;
   }
-  var WX_RETRACT = ['needs_reauth','server_not_connected','blocked_by_policy','approval_required','not_in_manifest','consent_required'];
-  function wxWatch(){
-    wxUnsubs.forEach(function(u){ u(); }); wxUnsubs = [];
-    WXC.forEach(function(c){
-      WXT.forEach(function(t){
-        var un = wxMcp.watchTool(WXS, t[1], wxIn(c), function(ev){
-          var d = WXD[c.id] = WXD[c.id] || {};
-          if(ev.type === 'data'){
-            d[t[0]] = ev.result.payload; d[t[0]+'At'] = (ev.result.cache && ev.result.cache.storedAt) || Date.now(); delete d[t[0]+'Err'];
-          }else{
-            d[t[0]+'Err'] = ev.error;
-            if(WX_RETRACT.indexOf(ev.error.code) >= 0){ delete d[t[0]]; delete d[t[0]+'At']; }
-          }
-          renderWx();
-        }, {refetchInterval: 30 * 60 * 1000, cache: {staleTime: 10 * 60 * 1000}});
-        wxUnsubs.push(un);
-      });
-    });
+
+  var current = data.current || {};
+  var daily = data.daily || {};
+  var hourly = data.hourly || {};
+  var condition = wxCondition(current.weather_code);
+  var times = hourly.time || [];
+  var currentTime = String(current.time || '');
+  var start = times.findIndex(function(time){ return time >= currentTime; });
+  if(start < 0) start = 0;
+
+  var hourlyHtml = '';
+  for(var i = start; i < Math.min(start + 24, times.length); i++){
+    var hourCondition = wxCondition(hourly.weather_code[i]);
+    hourlyHtml += '<div class="wx-hour">' +
+      '<div class="wx-hour-time">' + esc(wxHourLabel(times[i])) + '</div>' +
+      '<div class="wx-hour-icon">' + hourCondition[1] + '</div>' +
+      '<div class="wx-hour-temp">' + Math.round(hourly.temperature_2m[i]) + '°</div>' +
+      '<div class="wx-hour-pop">💧 ' + Math.round(hourly.precipitation_probability[i] || 0) + '%</div>' +
+    '</div>';
   }
-  async function wxAllow(){
-    if(!wxMcp) return;
-    try{ await wxMcp.callTool(WXS, WXT[2][1], wxIn(WXC[0])); wxWatch(); }
-    catch(e){ toast('尚未取得允許,無法載入預報'); }
+
+  var daysHtml = '';
+  var dates = daily.time || [];
+  for(var d = 0; d < Math.min(7, dates.length); d++){
+    var dayCondition = wxCondition(daily.weather_code[d]);
+    daysHtml += '<div class="wx-day">' +
+      '<div>' + wxDayLabel(dates[d], d) + '</div>' +
+      '<div class="wx-day-icon">' + dayCondition[1] + '</div>' +
+      '<div class="wx-day-pop">💧 ' + Math.round(daily.precipitation_probability_max[d] || 0) + '%</div>' +
+      '<div class="wx-day-temps"><span style="color:#b14a2e">' + Math.round(daily.temperature_2m_max[d]) + '°</span> / ' +
+        '<span style="color:#2470a1">' + Math.round(daily.temperature_2m_min[d]) + '°</span></div>' +
+      '<div class="wx-current-details">' + esc(dayCondition[0]) + '</div>' +
+    '</div>';
   }
-  async function refreshWx(){
-    var btn = $('wx-btn');
-    if(!wxMcp){ toast('這個檢視無法使用天氣連接器'); return; }
-    btn.disabled = true; btn.textContent = '⏳ 更新中…';
-    try{ await wxMcp.invalidate(WXS); }
-    catch(e){
-      WXC.forEach(function(c){ WXT.forEach(function(t){ wxMcp.callTool(WXS, t[1], wxIn(c), {cache: {staleTime: 0, gcTime: 300000, refresh: true}}).catch(function(){}); }); });
-    }
-    setTimeout(function(){ btn.disabled = false; btn.textContent = '🔄 刷新'; toast('已重新取得最新預報'); }, 1500);
+
+  var updated = new Date();
+  box.innerHTML =
+    '<div class="wx-now">' +
+      '<div><div class="wx-current-temp">' + Math.round(current.temperature_2m) + '°</div>' +
+        '<div class="wx-current-condition">' + condition[1] + ' ' + esc(condition[0]) + '</div></div>' +
+      '<div class="wx-current-details">' +
+        '<div>今日最高 ' + Math.round(daily.temperature_2m_max[0]) + '° / 最低 ' + Math.round(daily.temperature_2m_min[0]) + '°</div>' +
+        '<div>體感 ' + Math.round(current.apparent_temperature) + '°　💧 降雨機率 ' +
+          Math.round(daily.precipitation_probability_max[0] || 0) + '%</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="wx-panel"><div class="wx-panel-title">🕒 每小時預報</div><div class="wx-hourly">' + hourlyHtml + '</div></div>' +
+    '<div class="wx-panel"><div class="wx-panel-title">🗓️ 未來 7 天預報</div>' + daysHtml + '</div>';
+
+  $('wx-meta').textContent = '更新於 ' + updated.toLocaleString('zh-TW', {
+    month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false
+  }) + ' ・ ' + location.name;
+}
+
+async function refreshWx(cityKey){
+  if(cityKey) WX_CURRENT = cityKey;
+  renderWx();
+
+  var btn = $('wx-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ 更新中…'; }
+
+  var location = WX_LOCATIONS[WX_CURRENT];
+  var url = 'https://api.open-meteo.com/v1/forecast?' +
+    'latitude=' + location.latitude +
+    '&longitude=' + location.longitude +
+    '&current=temperature_2m,apparent_temperature,weather_code' +
+    '&hourly=temperature_2m,weather_code,precipitation_probability' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+    '&forecast_days=7&timezone=Asia%2FTokyo';
+
+  try{
+    var response = await fetch(url, {cache:'no-store'});
+    if(!response.ok) throw new Error('Open-Meteo request failed');
+    WX_DATA[WX_CURRENT] = await response.json();
+  }catch(error){
+    WX_DATA[WX_CURRENT] = {error:true};
+  }finally{
+    renderWx();
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 刷新'; }
   }
-  async function initWeather(){
-    if(window.claude && window.claude.use){ try{ wxMcp = await window.claude.use('mcp'); }catch(e){ wxMcp = null; } }
-    wxReady = true; renderWx();
-    if(wxMcp) wxWatch();
-  }
+}
+
+function initWeather(){
+  renderWx();
+  refreshWx();
+}
   async function initShared(){
     if(!window.claude || !window.claude.use) return;
     var db = null, user = null;
