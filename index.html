@@ -2492,3 +2492,53 @@ requestAnimationFrame(tick);
 </script>
 
 </body></html>
+<script type="module">
+// 1. 引入 Firebase 核心與 Realtime Database 模組
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
+
+// 2. 你的專案設定檔
+const firebaseConfig = {
+apiKey: "AIzaSyBfml_Ceqk1_-MqXggxnzT9WkhJeB6X4K0",
+authDomain: "nogoya-e0146.firebaseapp.com",
+databaseURL: "https://nogoya-e0146-default-rtdb.asia-southeast1.firebasedatabase.app",
+projectId: "nogoya-e0146",
+storageBucket: "nogoya-e0146.firebasestorage.app",
+messagingSenderId: "1040224487561",
+appId: "1:1040224487561:web:ff5d700c489b6d16239e58",
+measurementId: "G-EDQ6HH1Z5W"
+};
+
+// 3. 初始化 Firebase 與資料庫
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// 設定你們的房間代號與密碼（密碼需與 Firebase Rules 裡的設定一致）
+const ROOM_ID = "nagoya2027_main";
+const ROOM_PASSWORD = "nagoya2027";
+
+// 4. 【即時讀取】監聽資料庫變化（所有人打開網頁都能同步看到最新行程與帳務）
+const roomRef = ref(db, 'rooms/' + ROOM_ID);
+onValue(roomRef, (snapshot) => {
+const data = snapshot.val();
+if (data) {
+console.log("取得最新雲端資料：", data);
+// 👉 這裡可以呼叫你原本渲染畫面的函式，例如：updateUI(data);
+}
+});
+
+// 5. 【安全寫入】儲存資料時必須帶上 password 欄位以通過規則驗證
+window.saveDataToCloud = function(itineraryData, expenseData) {
+set(roomRef, {
+itinerary: itineraryData,
+expenses: expenseData,
+password: ROOM_PASSWORD // 關鍵：這行會通過你在 Firebase Rules 設定的檢查
+}).then(() => {
+alert("資料已成功同步到雲端！");
+}).catch((error) => {
+console.error("儲存失敗，可能是密碼錯誤或權限不足：", error);
+alert("儲存失敗，請檢查密碼或連線。");
+});
+};
+</script>
+
