@@ -2494,53 +2494,101 @@ requestAnimationFrame(tick);
 
 
 
+
+<!-- 角落的自動同步狀態小提示 -->
+<div id="sync-status" style="position: fixed; bottom: 16px; right: 16px; background: rgba(0, 0, 0, 0.75); color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 12px; z-index: 9999; transition: opacity 0.3s;">
+⏳ 連線雲端中...
+</div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
 
-// 1. 連線設定
-const db = getDatabase(initializeApp({
+// 1. 你的 Firebase 設定
+const firebaseConfig = {
 apiKey: "AIzaSyBfml_Ceqk1_-MqXggxnzT9WkhJeB6X4K0",
+authDomain: "nogoya-e0146.firebaseapp.com",
 databaseURL: "https://nogoya-e0146-default-rtdb.asia-southeast1.firebasedatabase.app",
-projectId: "nogoya-e0146"
-}));
-const roomRef = ref(db, 'rooms/nagoya2027_main');
+projectId: "nogoya-e0146",
+storageBucket: "nogoya-e0146.firebasestorage.app",
+messagingSenderId: "1040224487561",
+appId: "1:1040224487561:web:ff5d700c489b6d16239e58",
+measurementId: "G-EDQ6HH1Z5W"
+};
 
-let isLocalWriting = false;
+// 2. 初始化與房間設定（密碼需與 Rules 相同）
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const ROOM_ID = "nagoya2027_main";
+const ROOM_PASSWORD = "nagoya2027";
+const roomRef = ref(db, 'rooms/' + ROOM_ID);
 
-// 2. 監聽雲端：別人一修改，這裡直接瞬間同步畫面
+const statusEl = document.getElementById('sync-status');
+let saveTimer = null;
+let isUpdatingFromCloud = false; // 避免從雲端載入時又重複觸發存檔
+
+// 3. 【自動讀取】只要雲端有別人修改，畫面立刻同步更新
 onValue(roomRef, (snapshot) => {
 const data = snapshot.val();
-if (data && data.state && !isLocalWriting) {
-if (document.documentElement.innerHTML !== data.state) {
-document.open();
-document.write(data.state);
-document.close();
-}
+if (data && data.appState) {
+isUpdatingFromCloud = true;
+
+// 如果你原本的網頁是用 localStorage 存資料，這裡會自動幫你同步還原
+Object.keys(data.appState).forEach(key => {
+localStorage.setItem(key, data.appState[key]);
+});
+
+// 👉 如果你有自訂的畫面重新渲染函式（例如 renderAll()），請在下面這行呼叫它：
+if (typeof renderAll === 'function') renderAll();
+
+statusEl.innerText = "🟢 已同步最新資料";
+setTimeout(() => { isUpdatingFromCloud = false; }, 300);
+} else {
+statusEl.innerText = "🟢 雲端已連線 (尚無資料)";
 }
 });
 
-// 3. 監聽輸入與點擊：自動上傳
-document.addEventListener('input', autoSave);
-document.addEventListener('click', autoSave);
+// 4. 【自動存檔函式】停下動作 1 秒後自動上傳
+function triggerAutoSave() {
+if (isUpdatingFromCloud) return; // 如果是剛從雲端抓下來的資料，就不重複上傳
 
-function autoSave() {
-isLocalWriting = true;
-clearTimeout(window.t);
-window.t = setTimeout(() => {
-const currentState = document.documentElement.innerHTML;
-set(roomRef, { state: currentState, password: 'nagoya2027' }).then(() => {
-setTimeout(() => { isLocalWriting = false; }, 1500);
-}).catch(() => {
-isLocalWriting = false;
-});
-}, 1000); // 停止打字 1 秒後自動上傳
+statusEl.innerText = "🟡 準備自動儲存...";
+clearTimeout(saveTimer);
+
+saveTimer = setTimeout(() => {
+statusEl.innerText = "🔄 同步中...";
+
+// 自動打包網頁目前所有的 localStorage 資料（行程、記帳、飯店等）
+const currentAppState = {};
+for (let i = 0; i < localStorage.length; i++) {
+const key = localStorage.key(i);
+currentAppState[key] = localStorage.getItem(key);
 }
+
+set(roomRef, {
+appState: currentAppState,
+updatedAt: Date.now(),
+password: ROOM_PASSWORD // 自動帶入房間密碼通過驗證
+}).then(() => {
+statusEl.innerText = "🟢 已自動儲存";
+}).catch((err) => {
+console.error("自動存檔失敗：", err);
+statusEl.innerText = "🔴 儲存失敗 (請檢查密碼)";
+});
+}, 1000); // 停止修改 1000 毫秒（1秒）後執行存檔
+}
+
+// 5. 【全域監聽】只要網頁上有任何輸入、修改、點擊新增/刪除，自動觸發存檔
+document.addEventListener('input', triggerAutoSave);
+document.addEventListener('change', triggerAutoSave);
+document.addEventListener('click', (e) => {
+// 如果點擊的是按鈕（例如新增記帳、刪除項目），也延遲觸發自動存檔
+if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+triggerAutoSave();
+}
+});
 </script>
 
-
-
-</body></html>
 <script type="module">
 // 1. 引入 Firebase 核心與 Realtime Database 模組
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
@@ -2591,3 +2639,5 @@ alert("儲存失敗，請檢查密碼或連線。");
 };
 </script>
 
+
+</body></html>
