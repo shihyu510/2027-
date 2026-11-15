@@ -896,26 +896,26 @@ body{padding-bottom:40px}
     return clone(DEF);
   }
   var shared = null, readOnly = false;
-var applyingFirebaseState = false;
-var S = load();
+  var applyingFirebaseState = false;
+  var S = load();
 
-function save(){
-  if(applyingFirebaseState) return;
+  function save(){
+    if(applyingFirebaseState) return;
 
   // 避免同時透過 Claude 共用資料和 Firebase 寫入。
-  if(shared){
-    syncOut();
-    return;
-  }
+    if(shared){
+      syncOut();
+      return;
+    }
 
-  try{
-    localStorage.setItem(KEY, JSON.stringify(S));
-  }catch(e){}
+    try{
+      localStorage.setItem(KEY, JSON.stringify(S));
+    }catch(e){}
 
-  if(typeof window.saveTripStateToFirebase === 'function'){
-    window.saveTripStateToFirebase(clone(S));
+    if(typeof window.saveTripStateToFirebase === 'function'){
+      window.saveTripStateToFirebase(clone(S));
+    }
   }
-}
   function roGuard(){ if(readOnly){ toast('目前是唯讀模式,無法修改'); return true; } return false; }
 
   var toastT;
@@ -1641,9 +1641,6 @@ window.applyFirebaseTripState = function(remote){
   }
 };
   renderAll(); spy();
-  renderAll();
-  spy();
-  initWeather();
   initWeather();
 })();
 </script>
