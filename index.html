@@ -2597,7 +2597,7 @@ window.saveTripStateToFirebase = function(state) {
       const latest = (typeof window.getTripState === "function") ? window.getTripState() : state;
       setStatus("🔄 同步中…");
       await set(roomRef, {
-        appState: latest,
+        appState: JSON.stringify(latest),
         updatedAt: Date.now(),
         password: roomPassword
       });
@@ -2610,16 +2610,24 @@ window.saveTripStateToFirebase = function(state) {
   }, 1000);
 };
 
-onValue(roomRef, function(snapshot){
-  const data = snapshot.val();
-  if (!data || !data.appState) return;
+let remoteState;
 
-  const remoteJson = JSON.stringify(data.appState);
-  const localState = (typeof window.getTripState === "function") ? window.getTripState() : null;
-  const localJson = localState ? JSON.stringify(localState) : "";
+try {
+  // 讀取 JSON 字串；也兼容資料庫原有的物件格式。
+  remoteState = typeof data.appState === "string"
+    ? JSON.parse(data.appState)
+    : data.appState;
+} catch (error) {
+  console.error("Firebase 資料格式錯誤：", error);
+  setStatus("🔴 雲端資料格式錯誤");
+  return;
+}
 
-  if (remoteJson === localJson || remoteJson === lastAppliedJson) {
-    setStatus("🟢 已同步");
+const remoteJson = JSON.stringify(remoteState);
+const localState = typeof window.getTripState === "function"
+  ? window.getTripState()
+  : null;
+const localJson = localState ? JSON.stringify(localState) : "";    setStatus("🟢 已同步");
     return;
   }
 
@@ -2627,7 +2635,7 @@ onValue(roomRef, function(snapshot){
 
   applyingRemote = true;
   try {
-    window.applyFirebaseTripState(data.appState);
+    window.applyFirebaseTripState(remoteState);
     lastAppliedJson = remoteJson;
     setStatus("🟢 已同步最新資料");
   } catch (err) {
