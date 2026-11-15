@@ -1640,8 +1640,31 @@ window.applyFirebaseTripState = function(remote){
     applyingFirebaseState = false;
   }
 };
-  renderAll(); spy();
-  initWeather();
+  window.getTripState = function(){
+  return clone(S);
+};
+
+window.applyFirebaseTripState = function(remote){
+  if(!remote || typeof remote !== 'object') return;
+
+  var next = clone(DEF);
+  Object.keys(remote).forEach(function(key){
+    next[key] = remote[key];
+  });
+
+  applyingFirebaseState = true;
+  S = next;
+
+  try{
+    localStorage.setItem(KEY, JSON.stringify(S));
+  }catch(e){}
+
+  renderAll();
+  applyingFirebaseState = false;
+};
+
+renderAll(); spy();
+initWeather();
 })();
 </script>
 <script>
@@ -2531,18 +2554,13 @@ requestAnimationFrame(tick);
 (function(){ var f = window.initGhibli; window.initGhibli = null; f(); })();
 </script>
 
-<div id="sync-status" style="position:fixed;right:16px;bottom:16px;background:rgba(0,0,0,.8);color:#fff;padding:8px 12px;border-radius:999px;font-size:12px;z-index:9999;">
+  <div id="sync-status" style="position:fixed;right:16px;bottom:16px;background:rgba(0,0,0,.8);color:#fff;padding:8px 12px;border-radius:999px;font-size:12px;z-index:9999;">
   ⏳ 正在連線…
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
-import {
-  getDatabase,
-  ref,
-  onValue,
-  set
-} from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
+import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBfml_Ceqk1_-MqXggxnzT9WkhJeB6X4K0",
@@ -2554,110 +2572,73 @@ const firebaseConfig = {
   appId: "1:1040224487561:web:ff5d700c489b6d16239e58",
   measurementId: "G-EDQ6HH1Z5W"
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const roomRef = ref(db, "rooms/nagoya2027_main");
 const roomPassword = "nagoya2027";
 const statusEl = document.getElementById("sync-status");
 
-let ready = false;
-let applyingRemote = false;
 let saveTimer = null;
-let pendingState = null;
+let applyingRemote = false;
 let lastAppliedJson = "";
 
 function setStatus(message) {
   if (statusEl) statusEl.textContent = message;
 }
 
-async function writeState(state) {
-  await set(roomRef, {
-    appState: state,
-    updatedAt: Date.now(),
-    password: roomPassword
-  });
-}
-
-// 主程式呼叫 save() 後，延遲一秒合併連續修改再上傳。
 window.saveTripStateToFirebase = function(state) {
   if (!state || applyingRemote) return;
 
-  if (!ready) {
-    pendingState = state;
-    return;
-  }
-
   clearTimeout(saveTimer);
-  pendingState = state;
   setStatus("🟡 準備同步…");
 
   saveTimer = setTimeout(async function() {
-    const stateToSave = pendingState;
-    pendingState = null;
-
     try {
+      const latest = (typeof window.getTripState === "function") ? window.getTripState() : state;
       setStatus("🔄 同步中…");
-      await writeState(stateToSave);
+      await set(roomRef, {
+        appState: latest,
+        updatedAt: Date.now(),
+        password: roomPassword
+      });
+      lastAppliedJson = JSON.stringify(latest);
       setStatus("🟢 已同步");
-    } catch (error) {
-      console.error("Firebase 儲存失敗：", error);
-      setStatus("🔴 儲存失敗，請檢查網路與 Firebase Rules");
+    } catch (err) {
+      console.error("Firebase 儲存失敗：", err);
+      setStatus("🔴 儲存失敗");
     }
   }, 1000);
 };
 
-// 收到朋友或其他裝置的更新時，套用回主程式資料。
-onValue(roomRef, async function(snapshot) {
-  const roomData = snapshot.val();
+onValue(roomRef, function(snapshot){
+  const data = snapshot.val();
+  if (!data || !data.appState) return;
 
-  if (!roomData || !roomData.appState) {
-    const localState = window.getTripState && window.getTripState();
-    if (!localState) {
-      setStatus("🔴 主程式尚未準備好");
-      return;
-    }
-
-    try {
-      ready = true;
-      await writeState(localState);
-      lastAppliedJson = JSON.stringify(localState);
-      setStatus("🟢 已建立雲端資料");
-    } catch (error) {
-      console.error("Firebase 初始化失敗：", error);
-      setStatus("🔴 雲端初始化失敗，請檢查 Firebase Rules");
-    }
-    return;
-  }
-
-  ready = true;
-  const remoteState = roomData.appState;
-  const remoteJson = JSON.stringify(remoteState);
-  const localState = window.getTripState && window.getTripState();
+  const remoteJson = JSON.stringify(data.appState);
+  const localState = (typeof window.getTripState === "function") ? window.getTripState() : null;
   const localJson = localState ? JSON.stringify(localState) : "";
 
   if (remoteJson === localJson || remoteJson === lastAppliedJson) {
     setStatus("🟢 已同步");
-  } else {
-    applyingRemote = true;
-    try {
-      window.applyFirebaseTripState(remoteState);
-      lastAppliedJson = remoteJson;
-      setStatus("🟢 已同步最新資料");
-    } catch (error) {
-      console.error("套用 Firebase 資料失敗：", error);
-      setStatus("🔴 無法套用雲端資料");
-    } finally {
-      applyingRemote = false;
-    }
+    return;
   }
 
-  if (pendingState) {
-    window.saveTripStateToFirebase(pendingState);
+  clearTimeout(saveTimer);
+
+  applyingRemote = true;
+  try {
+    window.applyFirebaseTripState(data.appState);
+    lastAppliedJson = remoteJson;
+    setStatus("🟢 已同步最新資料");
+  } catch (err) {
+    console.error("套用 Firebase 資料失敗：", err);
+    setStatus("🔴 無法套用雲端資料");
+  } finally {
+    applyingRemote = false;
   }
-}, function(error) {
-  console.error("Firebase 讀取失敗：", error);
-  setStatus("🔴 無法讀取雲端資料，請檢查 Firebase Rules");
+}, function(err){
+  console.error("Firebase read error:", err);
+  setStatus("🔴 無法讀取雲端資料");
 });
 </script>
 </body></html>
