@@ -2506,33 +2506,35 @@ projectId: "nogoya-e0146"
 }));
 const roomRef = ref(db, 'rooms/nagoya2027_main');
 
-let isSaving = false;
+let isLocalWriting = false;
 
-// 2. 監聽雲端：別人改了資料，這裡自動重新整理載入
+// 2. 監聽雲端：別人一修改，這裡直接瞬間同步畫面
 onValue(roomRef, (snapshot) => {
 const data = snapshot.val();
-if (data && data.state && !isSaving) {
-if (localStorage.getItem('app_backup') !== data.state) {
-localStorage.setItem('app_backup', data.state);
-location.reload(); // 自動重新整理抓取最新畫面
+if (data && data.state && !isLocalWriting) {
+if (document.documentElement.innerHTML !== data.state) {
+document.open();
+document.write(data.state);
+document.close();
 }
 }
 });
 
-// 3. 監聽點擊與修改：只要有動作就自動上傳
+// 3. 監聽輸入與點擊：自動上傳
 document.addEventListener('input', autoSave);
 document.addEventListener('click', autoSave);
 
 function autoSave() {
-isSaving = true;
+isLocalWriting = true;
 clearTimeout(window.t);
 window.t = setTimeout(() => {
-// 這裡會把整頁的 HTML 或狀態備份上傳
 const currentState = document.documentElement.innerHTML;
 set(roomRef, { state: currentState, password: 'nagoya2027' }).then(() => {
-setTimeout(() => { isSaving = false; }, 1000);
+setTimeout(() => { isLocalWriting = false; }, 1500);
+}).catch(() => {
+isLocalWriting = false;
 });
-}, 1500); // 停止動作 1.5 秒後自動存檔
+}, 1000); // 停止打字 1 秒後自動上傳
 }
 </script>
 
